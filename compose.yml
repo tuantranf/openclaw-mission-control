@@ -16,7 +16,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
+    network_mode: host
   redis:
     image: redis:7-alpine
     ports:
@@ -26,7 +26,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-
+    network_mode: host
   backend:
     build:
       # Build from repo root so the backend image can include repo-level assets
@@ -37,12 +37,12 @@ services:
       - ./backend/.env
     environment:
       # Override localhost defaults for container networking
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-mission_control}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@127.0.0.1:5432/${POSTGRES_DB:-mission_control}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       DB_AUTO_MIGRATE: ${DB_AUTO_MIGRATE:-true}
       AUTH_MODE: ${AUTH_MODE}
       LOCAL_AUTH_TOKEN: ${LOCAL_AUTH_TOKEN}
-      RQ_REDIS_URL: redis://redis:6379/0
+      RQ_REDIS_URL: redis://127.0.0.1:6379/0
     depends_on:
       db:
         condition: service_healthy
@@ -50,7 +50,7 @@ services:
         condition: service_healthy
     ports:
       - "${BACKEND_PORT:-8000}:8000"
-
+    network_mode: host
   frontend:
     build:
       context: ./frontend
@@ -87,7 +87,7 @@ services:
           path: ./frontend/tailwind.config.cjs
         - action: rebuild
           path: ./frontend/tsconfig.json
-
+    network_mode: host
   webhook-worker:
     build:
       context: .
@@ -101,14 +101,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-mission_control}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@127.0.0.1:5432/${POSTGRES_DB:-mission_control}
       AUTH_MODE: ${AUTH_MODE}
       LOCAL_AUTH_TOKEN: ${LOCAL_AUTH_TOKEN}
-      RQ_REDIS_URL: redis://redis:6379/0
+      RQ_REDIS_URL: redis://127.0.0.1:6379/0
       RQ_QUEUE_NAME: ${RQ_QUEUE_NAME:-default}
       RQ_DISPATCH_THROTTLE_SECONDS: ${RQ_DISPATCH_THROTTLE_SECONDS:-2.0}
       RQ_DISPATCH_MAX_RETRIES: ${RQ_DISPATCH_MAX_RETRIES:-3}
     restart: unless-stopped
-
+    network_mode: host
 volumes:
   postgres_data:
