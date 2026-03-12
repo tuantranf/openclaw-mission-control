@@ -418,40 +418,6 @@ def _coerce_task_event_rows(
     return rows
 
 
-async def _lead_was_mentioned(
-    session: AsyncSession,
-    task: Task,
-    lead: Agent,
-) -> bool:
-    """Return `True` if the lead agent is mentioned in any comment on the task.
-
-    This is used to avoid redundant lead pings (especially in auto-created tasks) while still
-    ensuring escalation happens when explicitly requested.
-    """
-
-    statement = (
-        select(ActivityEvent.message)
-        .where(col(ActivityEvent.task_id) == task.id)
-        .where(col(ActivityEvent.event_type) == "task.comment")
-        .order_by(desc(col(ActivityEvent.created_at)))
-    )
-    for message in await session.exec(statement):
-        if not message:
-            continue
-        mentions = extract_mentions(message)
-        if matches_agent_mention(lead, mentions):
-            return True
-    return False
-
-
-def _lead_created_task(task: Task, lead: Agent) -> bool:
-    """Return `True` if `task` was auto-created by the lead agent."""
-
-    if not task.auto_created or not task.auto_reason:
-        return False
-    return task.auto_reason == f"lead_agent:{lead.id}"
-
-
 async def _reconcile_dependents_for_dependency_toggle(
     session: AsyncSession,
     *,
@@ -1720,22 +1686,6 @@ async def _validate_task_comment_access(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         await require_board_access(session, user=actor.user, board=board, write=True)
 
-    if (
-        actor.actor_type == "agent"
-        and actor.agent
-        and actor.agent.is_board_lead
-        and task.status != "review"
-        and not await _lead_was_mentioned(session, task, actor.agent)
-        and not _lead_created_task(task, actor.agent)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Board leads can only comment during review, when mentioned, "
-                "or on tasks they created."
-            ),
-        )
-
 
 def _comment_actor_id(actor: ActorContext) -> UUID | None:
     if actor.actor_type == "agent" and actor.agent:
@@ -2073,11 +2023,6 @@ async def _lead_apply_assignment(
     agent = await Agent.objects.by_id(assigned_id).first(session)
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    if agent.is_board_lead:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Board leads cannot assign tasks to themselves.",
-        )
     if agent.board_id and update.task.board_id and agent.board_id != update.task.board_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT)
     update.task.assigned_agent_id = agent.id
@@ -2121,23 +2066,7 @@ async def _lead_apply_status(
     lead_agent = update.actor.agent
     if "status" not in update.updates:
         return
-    if update.task.status != "review":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Lead status gate failed: board leads can only change status when the current "
-                f"task status is `review` (current: `{update.task.status}`)."
-            ),
-        )
     target_status = _required_status_value(update.updates["status"])
-    if target_status not in {"done", "inbox"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Lead status target gate failed: review tasks can only move to `done` or "
-                f"`inbox` (requested: `{target_status}`)."
-            ),
-        )
     if target_status == "inbox":
         update.task.assigned_agent_id = await _last_worker_who_moved_task_to_review(
             session,
@@ -2145,6 +2074,14 @@ async def _lead_apply_status(
             board_id=update.board_id,
             lead_agent_id=lead_agent.id,
         )
+        update.task.previous_in_progress_at = update.task.in_progress_at
+        update.task.in_progress_at = None
+    elif target_status == "in_progress":
+        update.task.assigned_agent_id = lead_agent.id
+        update.task.in_progress_at = utcnow()
+    elif target_status == "review":
+        update.task.previous_in_progress_at = update.task.in_progress_at
+        update.task.assigned_agent_id = None
         update.task.in_progress_at = None
     update.task.status = target_status
 
@@ -2309,20 +2246,9 @@ async def _apply_non_lead_agent_task_rules(
             code="task_board_mismatch",
             message="Agent can only update tasks for their assigned board.",
         )
-    # Allow agents to claim unassigned tasks by updating status (when permitted by board rules).
-    if (
-        update.actor.agent
-        and update.task.assigned_agent_id is not None
-        and update.task.assigned_agent_id != update.actor.agent.id
-        and "status" in update.updates
-    ):
-        raise _task_update_forbidden_error(
-            code="task_assignee_mismatch",
-            message="Agents can only change status on tasks assigned to them.",
-        )
-    # Agents are limited to status/comment updates, and non-inbox status moves
+    # Agents are limited to status/comment/assignment updates, and non-inbox status moves
     # must pass dependency checks before they can proceed.
-    allowed_fields = {"status", "comment", "custom_field_values"}
+    allowed_fields = {"status", "comment", "custom_field_values", "assigned_agent_id"}
     if (
         update.depends_on_task_ids is not None
         or update.tag_ids is not None
@@ -2332,8 +2258,18 @@ async def _apply_non_lead_agent_task_rules(
     ):
         raise _task_update_forbidden_error(
             code="task_update_field_forbidden",
-            message="Agents may only update status, comment, and custom field values.",
+            message="Agents may only update status, comment, assignment, and custom field values.",
         )
+    if "assigned_agent_id" in update.updates:
+        assigned_agent_id = _optional_assigned_agent_id(
+            update.updates.get("assigned_agent_id"),
+        )
+        if assigned_agent_id:
+            agent = await Agent.objects.by_id(assigned_agent_id).first(session)
+            if agent is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+            if agent.board_id and update.task.board_id and agent.board_id != update.task.board_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT)
     if "status" in update.updates:
         only_lead_can_change_status = (
             await session.exec(

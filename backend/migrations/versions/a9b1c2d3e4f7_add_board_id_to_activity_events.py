@@ -20,40 +20,51 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("activity_events", sa.Column("board_id", sa.Uuid(), nullable=True))
-    op.execute(
-        """
-        UPDATE activity_events AS ae
-        SET board_id = t.board_id
-        FROM tasks AS t
-        WHERE ae.task_id = t.id
-          AND ae.board_id IS NULL
-        """
-    )
-    op.execute(
-        """
-        UPDATE activity_events AS ae
-        SET board_id = a.board_id
-        FROM agents AS a
-        WHERE ae.agent_id = a.id
-          AND ae.board_id IS NULL
-          AND a.board_id IS NOT NULL
-        """
-    )
-    op.create_foreign_key(
-        "fk_activity_events_board_id_boards",
-        "activity_events",
-        "boards",
-        ["board_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
-    op.create_index(
-        op.f("ix_activity_events_board_id"),
-        "activity_events",
-        ["board_id"],
-        unique=False,
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {c["name"] for c in inspector.get_columns("activity_events")}
+    indexes = {idx["name"] for idx in inspector.get_indexes("activity_events")}
+    fks = {fk["name"] for fk in inspector.get_foreign_keys("activity_events") if fk.get("name")}
+
+    if "board_id" not in columns:
+        op.add_column("activity_events", sa.Column("board_id", sa.Uuid(), nullable=True))
+        op.execute(
+            """
+            UPDATE activity_events AS ae
+            SET board_id = t.board_id
+            FROM tasks AS t
+            WHERE ae.task_id = t.id
+              AND ae.board_id IS NULL
+            """
+        )
+        op.execute(
+            """
+            UPDATE activity_events AS ae
+            SET board_id = a.board_id
+            FROM agents AS a
+            WHERE ae.agent_id = a.id
+              AND ae.board_id IS NULL
+              AND a.board_id IS NOT NULL
+            """
+        )
+
+    if "fk_activity_events_board_id_boards" not in fks:
+        op.create_foreign_key(
+            "fk_activity_events_board_id_boards",
+            "activity_events",
+            "boards",
+            ["board_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
+
+    if "ix_activity_events_board_id" not in indexes:
+        op.create_index(
+            op.f("ix_activity_events_board_id"),
+            "activity_events",
+            ["board_id"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:

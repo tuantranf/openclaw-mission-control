@@ -172,7 +172,7 @@ async def test_non_lead_agent_can_update_status_for_unassigned_task() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_lead_agent_forbidden_when_task_assigned_to_other_agent() -> None:
+async def test_non_lead_agent_can_change_status_on_task_assigned_to_other_agent() -> None:
     engine = await _make_engine()
     try:
         async with await _make_session(engine) as session:
@@ -237,27 +237,101 @@ async def test_non_lead_agent_forbidden_when_task_assigned_to_other_agent() -> N
             actor = (await session.exec(select(Agent).where(col(Agent.id) == actor_id))).first()
             assert actor is not None
 
-            with pytest.raises(HTTPException) as exc:
-                await tasks_api.update_task(
-                    payload=TaskUpdate(status="in_progress"),
-                    task=task,
-                    session=session,
-                    actor=ActorContext(actor_type="agent", agent=actor),
-                )
-
-            assert exc.value.status_code == 403
-            assert isinstance(exc.value.detail, dict)
-            assert exc.value.detail["code"] == "task_assignee_mismatch"
-            assert (
-                exc.value.detail["message"]
-                == "Agents can only change status on tasks assigned to them."
+            updated = await tasks_api.update_task(
+                payload=TaskUpdate(status="in_progress"),
+                task=task,
+                session=session,
+                actor=ActorContext(actor_type="agent", agent=actor),
             )
+
+            assert updated.status == "in_progress"
+            # Agent that moved the task to in_progress becomes the assignee
+            assert updated.assigned_agent_id == actor_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_non_lead_agent_can_update_assignment() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            board_id = uuid4()
+            gateway_id = uuid4()
+            actor_id = uuid4()
+            other_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            session.add(
+                Agent(
+                    id=actor_id,
+                    name="actor",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                ),
+            )
+            session.add(
+                Agent(
+                    id=other_id,
+                    name="other",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                ),
+            )
+            session.add(
+                Task(
+                    id=task_id,
+                    board_id=board_id,
+                    title="owned task",
+                    description="",
+                    status="inbox",
+                    assigned_agent_id=actor_id,
+                ),
+            )
+            await session.commit()
+
+            task = (await session.exec(select(Task).where(col(Task.id) == task_id))).first()
+            assert task is not None
+            actor = (await session.exec(select(Agent).where(col(Agent.id) == actor_id))).first()
+            assert actor is not None
+
+            updated = await tasks_api.update_task(
+                payload=TaskUpdate(assigned_agent_id=other_id),
+                task=task,
+                session=session,
+                actor=ActorContext(actor_type="agent", agent=actor),
+            )
+
+            assert updated.assigned_agent_id == other_id
     finally:
         await engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_non_lead_agent_forbidden_for_lead_only_patch_fields() -> None:
+    """Agents still cannot update fields like title, description, depends_on_task_ids."""
     engine = await _make_engine()
     try:
         async with await _make_session(engine) as session:
@@ -314,7 +388,7 @@ async def test_non_lead_agent_forbidden_for_lead_only_patch_fields() -> None:
 
             with pytest.raises(HTTPException) as exc:
                 await tasks_api.update_task(
-                    payload=TaskUpdate(assigned_agent_id=actor_id),
+                    payload=TaskUpdate(title="new title"),
                     task=task,
                     session=session,
                     actor=ActorContext(actor_type="agent", agent=actor),
@@ -911,5 +985,299 @@ async def test_non_lead_agent_moves_to_review_without_comment_or_recent_comment_
 
             assert exc.value.status_code == 422
             assert exc.value.detail == "Comment is required."
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_non_lead_agent_cannot_assign_to_agent_on_different_board() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            board_id = uuid4()
+            other_board_id = uuid4()
+            gateway_id = uuid4()
+            actor_id = uuid4()
+            cross_board_agent_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            session.add(
+                Board(
+                    id=other_board_id,
+                    organization_id=org_id,
+                    name="other-board",
+                    slug="other-board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            session.add(
+                Agent(
+                    id=actor_id,
+                    name="actor",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                ),
+            )
+            session.add(
+                Agent(
+                    id=cross_board_agent_id,
+                    name="cross-board-agent",
+                    board_id=other_board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                ),
+            )
+            session.add(
+                Task(
+                    id=task_id,
+                    board_id=board_id,
+                    title="task",
+                    description="",
+                    status="inbox",
+                ),
+            )
+            await session.commit()
+
+            task = (await session.exec(select(Task).where(col(Task.id) == task_id))).first()
+            assert task is not None
+            actor = (await session.exec(select(Agent).where(col(Agent.id) == actor_id))).first()
+            assert actor is not None
+
+            with pytest.raises(HTTPException) as exc:
+                await tasks_api.update_task(
+                    payload=TaskUpdate(assigned_agent_id=cross_board_agent_id),
+                    task=task,
+                    session=session,
+                    actor=ActorContext(actor_type="agent", agent=actor),
+                )
+
+            assert exc.value.status_code == 409
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_non_lead_agent_cannot_assign_to_nonexistent_agent() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            board_id = uuid4()
+            gateway_id = uuid4()
+            actor_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            session.add(
+                Agent(
+                    id=actor_id,
+                    name="actor",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                ),
+            )
+            session.add(
+                Task(
+                    id=task_id,
+                    board_id=board_id,
+                    title="task",
+                    description="",
+                    status="inbox",
+                ),
+            )
+            await session.commit()
+
+            task = (await session.exec(select(Task).where(col(Task.id) == task_id))).first()
+            assert task is not None
+            actor = (await session.exec(select(Agent).where(col(Agent.id) == actor_id))).first()
+            assert actor is not None
+
+            with pytest.raises(HTTPException) as exc:
+                await tasks_api.update_task(
+                    payload=TaskUpdate(assigned_agent_id=uuid4()),
+                    task=task,
+                    session=session,
+                    actor=ActorContext(actor_type="agent", agent=actor),
+                )
+
+            assert exc.value.status_code == 404
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_non_lead_agent_blocked_by_only_lead_can_change_status() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            board_id = uuid4()
+            gateway_id = uuid4()
+            actor_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                    only_lead_can_change_status=True,
+                ),
+            )
+            session.add(
+                Agent(
+                    id=actor_id,
+                    name="actor",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                ),
+            )
+            session.add(
+                Task(
+                    id=task_id,
+                    board_id=board_id,
+                    title="task",
+                    description="",
+                    status="inbox",
+                    assigned_agent_id=actor_id,
+                ),
+            )
+            await session.commit()
+
+            task = (await session.exec(select(Task).where(col(Task.id) == task_id))).first()
+            assert task is not None
+            actor = (await session.exec(select(Agent).where(col(Agent.id) == actor_id))).first()
+            assert actor is not None
+
+            with pytest.raises(HTTPException) as exc:
+                await tasks_api.update_task(
+                    payload=TaskUpdate(status="in_progress"),
+                    task=task,
+                    session=session,
+                    actor=ActorContext(actor_type="agent", agent=actor),
+                )
+
+            assert exc.value.status_code == 403
+            assert exc.value.detail == "Only board leads can change task status."
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_lead_agent_can_comment_on_inbox_task() -> None:
+    """Board leads can comment on any task regardless of status."""
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            board_id = uuid4()
+            gateway_id = uuid4()
+            lead_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            session.add(
+                Agent(
+                    id=lead_id,
+                    name="Lead Agent",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                    is_board_lead=True,
+                ),
+            )
+            session.add(
+                Task(
+                    id=task_id,
+                    board_id=board_id,
+                    title="inbox task",
+                    description="",
+                    status="inbox",
+                ),
+            )
+            await session.commit()
+
+            task = (await session.exec(select(Task).where(col(Task.id) == task_id))).first()
+            assert task is not None
+            lead = (await session.exec(select(Agent).where(col(Agent.id) == lead_id))).first()
+            assert lead is not None
+
+            # Should NOT raise — leads can now comment on any task regardless of status
+            await tasks_api._validate_task_comment_access(
+                session,
+                task=task,
+                actor=ActorContext(actor_type="agent", agent=lead),
+            )
     finally:
         await engine.dispose()
