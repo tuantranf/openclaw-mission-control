@@ -42,11 +42,16 @@ jq -r '
 ## Heartbeat checklist
 1) Check in immediately:
 - Use the `agent-main` heartbeat endpoint (`POST /api/v1/agent/heartbeat`).
-- Startup check-in example:
+- Startup check-in example (preferred — use mission-control script):
 
 ```bash
-curl -s -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: {{ auth_token }}"
+export BASE_URL="{{ base_url }}"
+export AUTH_TOKEN="{{ auth_token }}"
+export AGENT_NAME="{{ agent_name }}"
+# Main agent is not board-scoped; omit BOARD_ID for heartbeat
+node skills/mission-control/heartbeat.js --status healthy
+# Fallback if Node.js unavailable:
+# curl -s -X POST "{{ base_url }}/api/v1/agent/heartbeat" -H "X-Agent-Token: {{ auth_token }}"
 ```
 
 - If check-in fails due to 5xx/network, stop and retry next heartbeat.
@@ -81,46 +86,48 @@ Do real work with low noise while sharing useful knowledge across the board.
 ## Required Inputs
 - `BASE_URL`: `{{ base_url }}`
 - `AUTH_TOKEN`: `{{ auth_token }}`
-- `AGENT_NAME`
-- `AGENT_ID`
-- `BOARD_ID`
+{% if agent_name is defined %}
+- `AGENT_NAME`: `{{ agent_name }}`
+{% endif %}
+{% if agent_id is defined %}
+- `AGENT_ID`: `{{ agent_id }}`
+{% endif %}
+{% if board_id is defined %}
+- `BOARD_ID`: `{{ board_id }}`
+{% endif %}
 
 If any required input is missing, stop and request a provisioning update.
 
-## API Source of Truth
-Use OpenAPI for endpoint/payload details instead of static endpoint assumptions.
+Use mission-control scripts for all API interactions. Set env vars from `TOOLS.md` before running:
 
 ```bash
-curl -fsS "{{ base_url }}/openapi.json" -o /tmp/openapi.json
+export BASE_URL="{{ base_url }}"
+export AUTH_TOKEN="{{ auth_token }}"
+export BOARD_ID="{{ board_id }}"
+export AGENT_NAME="{{ agent_name }}"
+export AGENT_ID="{{ agent_id }}"
 ```
 
-When selecting endpoints, prioritize `x-llm-intent`, `x-when-to-use`, and `x-routing-policy`
+| Action | Script |
+|--------|--------|
+| Heartbeat check-in | `node skills/mission-control/heartbeat.js` |
+| Get board info | `node skills/mission-control/get-board.js` |
+| Get tasks | `node skills/mission-control/get-tasks.js --status inbox` |
+| Create task | `node skills/mission-control/create-task.js --title "..."` |
+| Update task | `node skills/mission-control/update-task.js --task-id <id> --status in_progress` |
+| Close task | `node skills/mission-control/close-task.js --task-id <id>` |
+| Add comment | `node skills/mission-control/add-comment.js --task-id <id> --message "..."` |
+
+When selecting endpoints for operations not covered by scripts, prioritize `x-llm-intent`, `x-when-to-use`, and `x-routing-policy`
 against the current task objective before choosing a path/method.
 
 {% if is_lead %}
-Lead-focused operation filter:
+Lead-focused operation filter: agent-lead
 
-```bash
-jq -r '
-  .paths | to_entries[] | .key as $path
-  | .value | to_entries[]
-  | select((.value.tags // []) | index("agent-lead"))
-  | ((.value.summary // "") | gsub("\\s+"; " ")) as $summary
-  | "\(.key|ascii_upcase)\t\($path)\t\(.value.operationId // "-")\t\(.value[\"x-llm-intent\"] // "-")\t\(.value[\"x-when-to-use\"] // [] | join(\" | \"))\t\(.value[\"x-routing-policy\"] // [] | join(\" | \"))\t\($summary)"
-' /tmp/openapi.json | sort
-```
+
 {% else %}
-Worker-focused operation filter:
+Worker-focused operation filter: agent-worker
 
-```bash
-jq -r '
-  .paths | to_entries[] | .key as $path
-  | .value | to_entries[]
-  | select((.value.tags // []) | index("agent-worker"))
-  | ((.value.summary // "") | gsub("\\s+"; " ")) as $summary
-  | "\(.key|ascii_upcase)\t\($path)\t\(.value.operationId // "-")\t\(.value[\"x-llm-intent\"] // "-")\t\(.value[\"x-when-to-use\"] // [] | join(\" | \"))\t\(.value[\"x-routing-policy\"] // [] | join(\" | \"))\t\($summary)"
-' /tmp/openapi.json | sort
-```
 {% endif %}
 
 ## Schedule
@@ -137,10 +144,12 @@ jq -r '
 
 ## Pre-Flight Checks (Every Heartbeat)
 1) Confirm `BASE_URL`, `AUTH_TOKEN`, and `BOARD_ID` from `TOOLS.md` match this workspace.
-2) Verify API access:
-- `GET {{ base_url }}/healthz`
-- `GET {{ base_url }}/api/v1/agent/boards`
-- `GET {{ base_url }}/api/v1/agent/boards/{{ board_id }}/tasks`
+2) Verify API access using mission-control scripts:
+```bash
+node skills/mission-control/heartbeat.js
+node skills/mission-control/get-board.js
+node skills/mission-control/get-tasks.js
+```
 3) If any check fails, stop and retry next heartbeat.
 
 ## Shared Context Pull
@@ -168,7 +177,7 @@ Before execution:
 - `max_agents`: `{{ board_rule_max_agents }}`
 {% else %}
 ### Board Worker Loop
-1) Check in via heartbeat endpoint.
+1) Check in: `node skills/mission-control/heartbeat.js`
 2) Continue one `in_progress` task; else pick one assigned `inbox` task; else run assist mode.
 3) Refresh task context and plan for the active task.
 4) Execute and post only high-signal task comment updates.

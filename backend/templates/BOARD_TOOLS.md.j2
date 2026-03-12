@@ -13,7 +13,7 @@
 {% if workspace_path is defined %}
 - `WORKSPACE_PATH={{ workspace_path }}`
 {% endif %}
-- Required tools: `curl`, `jq`
+- Required tools: `curl`, `jq`, `node` (>= 18)
 
 {% if is_main %}
 {% set role_tag = "agent-main" %}
@@ -23,23 +23,33 @@
 {% set role_tag = "agent-worker" %}
 {% endif %}
 
-## OpenAPI refresh (run before API-heavy work)
+Please use the mission-control skill for update/create/manage the tasks, board, task comments.
+
+## Mission Control Scripts
+
+Use these Node.js scripts for all API interactions — preferred over raw curl.
+
+Export env vars from this file before running any script:
 
 ```bash
-mkdir -p api
-curl -fsS "{{ base_url }}/openapi.json" -o api/openapi.json
-jq -r '
-  .paths | to_entries[] as $p
-  | $p.value | to_entries[]
-  | select((.value.tags // []) | index("{{ role_tag }}"))
-  | "\(.key|ascii_upcase)\t\($p.key)\t\(.value.operationId // "-")\t\(.value[\"x-llm-intent\"] // "-")\t\(.value[\"x-when-to-use\"] // [] | join(\" | \"))\t\(.value[\"x-routing-policy\"] // [] | join(\" | \"))"
-' api/openapi.json | sort > api/{{ role_tag }}-operations.tsv
+export BASE_URL="{{ base_url }}"
+export AUTH_TOKEN="{{ auth_token }}"
+export BOARD_ID="{{ board_id }}"
+export AGENT_NAME="{{ agent_name }}"
+export AGENT_ID="{{ agent_id }}"
 ```
 
-## API source of truth
-- `api/openapi.json`
-- `api/{{ role_tag }}-operations.tsv`
-  - Columns: METHOD, PATH, OP_ID, X_LLM_INTENT, X_WHEN_TO_USE, X_ROUTING_POLICY
+| Script | Purpose | Example |
+|--------|---------|---------|
+| `heartbeat.js` | Check in / liveness | `node skills/mission-control/heartbeat.js` |
+| `get-board.js` | Fetch board metadata | `node skills/mission-control/get-board.js` |
+| `get-tasks.js` | List board tasks | `node skills/mission-control/get-tasks.js --status inbox` |
+| `create-task.js` | Create a new task | `node skills/mission-control/create-task.js --title "..."` |
+| `update-task.js` | Update task status or assignment | `node skills/mission-control/update-task.js --task-id <id> --status in_progress` |
+| `close-task.js` | Close a task (status → done) | `node skills/mission-control/close-task.js --task-id <id>` |
+| `add-comment.js` | Post a task comment | `node skills/mission-control/add-comment.js --task-id <id> --message "..."` |
+
+See `skills/mission-control/SKILL.md` for full usage documentation.
 
 ## API discovery policy
 - Use operations tagged `{{ role_tag }}`.

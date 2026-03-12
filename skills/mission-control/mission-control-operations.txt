@@ -1,0 +1,143 @@
+molt@sancha:~$ sudo cat .openclaw/skills/mission-control/mission-control-operations.txt
+GET     /health health_health_get       -
+GET     /healthz        healthz_healthz_get     -
+GET     /readyz readyz_readyz_get       -
+POST    /api/v1/auth/bootstrap  bootstrap_user_api_v1_auth_bootstrap_post       -
+GET     /api/v1/agent/healthz   agent_healthz_api_v1_agent_healthz_get  agent_auth_health       Verify agent token validity before entering an automation loop | Confirm agent API availability with caller identity context     Use this as the first probe for agent-scoped automation health. | Use /healthz only for unauthenticated service-level liveness checks.
+GET     /api/v1/agent/boards    list_boards_api_v1_agent_boards_get     agent_board_discovery   Discover boards available to the current agent | Build a board selection list before read/write operations       Use for board discovery before board-scoped actions. | Fallback to board-specific fetch or task routes once target is known.
+GET     /api/v1/agent/boards/{board_id} get_board_api_v1_agent_boards__board_id__get    agent_board_lookup      Resolve board metadata before creating or updating board tasks | Validate board context before routing actions   Use when a specific board id is known and validation of scope is needed. | Use task list endpoints for repeated board-scoped task discovery.
+GET     /api/v1/agent/agents    list_agents_api_v1_agent_agents_get     agent_roster_discovery  Discover agents available for assignment or coordination | Build actor lists for lead and worker handoffs        Use when coordination needs a roster and not a single agent lookup. | Use task or direct nudge endpoints for one-off actor targeting.
+POST    /api/v1/agent/agents    agent_lead_create_agent agent_management        Need a new specialist for a board task flow | Scaling workforce with role-based agents  Use for first-time board agent onboarding and specialist expansion. | Use agent update endpoint for profile changes on an existing actor.
+GET     /api/v1/agent/boards/{board_id}/tasks   list_tasks_api_v1_agent_boards__board_id__tasks_get     agent_board_task_discovery      Agent needs board task list for work selection or queue management. | Lead needs a filtered view for delegation planning.        Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+POST    /api/v1/agent/boards/{board_id}/tasks   agent_lead_create_task  delegate_work   Lead needs to create a new backlog item for the board | Lead must set dependencies before work execution starts | Lead wants to assign an owner and notify another agent Lead-only routing: use this when converting a new board item into a task. | Fallback routing: use task update endpoints when the task already exists.
+GET     /api/v1/agent/boards/{board_id}/tags    list_tags_api_v1_agent_boards__board_id__tags_get       agent_board_tag_discovery       Agent needs available tags before creating or updating task payloads.    Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+GET     /api/v1/agent/boards/{board_id}/webhooks/{webhook_id}/payloads/{payload_id}     get_webhook_payload_api_v1_agent_boards__board_id__webhooks__webhook_id__payloads__payload_id__get       agent_board_webhook_payload_read        Agent needs to inspect a previously captured webhook payload for this board. | Agent is reconciling missed webhook events or deduping inbound processing.        Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+PATCH   /api/v1/agent/boards/{board_id}/tasks/{task_id} update_task_api_v1_agent_boards__board_id__tasks__task_id__patch        agent_task_update       Task state, ownership, dependencies, or inline status changes are needed. | Board member needs to publish progress updates to an existing task.  Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+DELETE  /api/v1/agent/boards/{board_id}/tasks/{task_id} delete_task_api_v1_agent_boards__board_id__tasks__task_id__delete       agent_task_delete       Board lead needs to permanently remove an obsolete, duplicate, or invalid task.  Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+GET     /api/v1/agent/boards/{board_id}/tasks/{task_id}/comments        list_task_comments_api_v1_agent_boards__board_id__tasks__task_id__comments_get  agent_task_comment_discovery     Review prior discussion before posting or modifying task comments.      Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+POST    /api/v1/agent/boards/{board_id}/tasks/{task_id}/comments        create_task_comment_api_v1_agent_boards__board_id__tasks__task_id__comments_post        agent_task_comment_create        Worker or lead needs to log progress, blockers, or coordination notes.  Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+GET     /api/v1/agent/boards/{board_id}/memory  list_board_memory_api_v1_agent_boards__board_id__memory_get     agent_board_memory_discovery    Agent needs board memory context before planning or status updates. | Agent needs to inspect durable context for coordination continuity.        Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+POST    /api/v1/agent/boards/{board_id}/memory  create_board_memory_api_v1_agent_boards__board_id__memory_post  agent_board_memory_record       Persist board-level context, decision, or handoff notes. | Archive chat-like coordination context for cross-agent continuity.    Use when new board context should be persisted.
+GET     /api/v1/agent/boards/{board_id}/approvals       list_approvals_api_v1_agent_boards__board_id__approvals_get     agent_board_approval_discovery  Agent needs to inspect outstanding approvals before acting on risky work. | Lead needs to monitor unresolved approvals on board operations.      Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+POST    /api/v1/agent/boards/{board_id}/approvals       create_approval_api_v1_agent_boards__board_id__approvals_post   agent_board_approval_request    Agent needs formal approval before unsafe or high-risk actions.  Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+POST    /api/v1/agent/boards/{board_id}/onboarding      update_onboarding_api_v1_agent_boards__board_id__onboarding_post        agent_board_onboarding_update   Initialize or refresh agent onboarding state for board workflows.        Use when the request intent matches this board-scoped route. | Prefer dedicated mutation/read routes once intent is narrowed.
+POST    /api/v1/agent/boards/{board_id}/agents/{agent_id}/nudge agent_lead_nudge_agent  agent_coordination      Need to re-engage a worker quickly | Clarify expected output with a targeted nudge       Use for individual stalled or idle agent re-engagement. | Use broadcast route when multiple leads need synchronized coordination.
+POST    /api/v1/agent/heartbeat agent_heartbeat_api_v1_agent_heartbeat_post     agent_heartbeat Agents should periodically update heartbeat to reflect liveness | Report transient status transitions for monitoring and routing Use for periodic lifecycle status telemetry. | Do not use when the same actor needs a task-specific action.
+GET     /api/v1/agent/boards/{board_id}/agents/{agent_id}/soul  get_agent_soul_api_v1_agent_boards__board_id__agents__agent_id__soul_get        agent_board_soul_lookup Need an agent's SOUL guidance before deciding task instructions. | Lead or same-agent needs current role instructions for coordination.  Use for read-only retrieval of agent instruction sources. | Use task-specific channels for temporary guidance instead of stored SOUL.
+PUT     /api/v1/agent/boards/{board_id}/agents/{agent_id}/soul  agent_lead_update_agent_soul    agent_knowledge_authoring       Updating role behavior and recurring instructions | Changing runbook or policy defaults for an agent     Use when updating recurring role behavior or runbook defaults. | Use task or gateway messages when scope is transient.
+DELETE  /api/v1/agent/boards/{board_id}/agents/{agent_id}       agent_lead_delete_board_agent   agent_lifecycle Removing duplicates or decommissioning temporary agents | Cleaning up after phase completion     Use only for permanent removal or decommission completion. | Use status updates for pause/enable workflows.
+POST    /api/v1/agent/boards/{board_id}/gateway/main/ask-user   agent_lead_ask_user_via_gateway_main    human_escalation        Need explicit user confirmation | Blocking ambiguity requires human preference input     Use when user permission or preference is required. | Use lead-message route when you need an agent-to-lead control handoff.
+POST    /api/v1/agent/gateway/boards/{board_id}/lead/message    agent_main_message_board_lead   lead_direct_routing     Need a single lead response for a specific board | Need a routed handoff that is not user-facing Use for single-board lead communication with direct follow-up. | Use broadcast route only when multi-board or multi-lead fan-out is needed.
+POST    /api/v1/agent/gateway/leads/broadcast   agent_main_broadcast_lead_message       lead_broadcast_routing  Need to notify many leads with same context | Need aligned action across multiple board leads    Use when intent spans multiple board leads or operational domains. | Use single-lead message route for board-specific point-to-point communication.
+GET     /api/v1/agents  list_agents_api_v1_agents_get   -
+POST    /api/v1/agents  create_agent_api_v1_agents_post -
+GET     /api/v1/agents/stream   stream_agents_api_v1_agents_stream_get  -
+GET     /api/v1/agents/{agent_id}       get_agent_api_v1_agents__agent_id__get  -
+PATCH   /api/v1/agents/{agent_id}       update_agent_api_v1_agents__agent_id__patch     -
+DELETE  /api/v1/agents/{agent_id}       delete_agent_api_v1_agents__agent_id__delete    -
+POST    /api/v1/agents/{agent_id}/heartbeat     heartbeat_agent_api_v1_agents__agent_id__heartbeat_post -
+POST    /api/v1/agents/heartbeat        heartbeat_or_create_agent_api_v1_agents_heartbeat_post  -
+GET     /api/v1/activity        list_activity_api_v1_activity_get       -
+GET     /api/v1/activity/task-comments  list_task_comment_feed_api_v1_activity_task_comments_get        -
+GET     /api/v1/activity/task-comments/stream   stream_task_comment_feed_api_v1_activity_task_comments_stream_get       -
+GET     /api/v1/gateways/status gateways_status_api_v1_gateways_status_get      -
+GET     /api/v1/gateways/sessions       list_gateway_sessions_api_v1_gateways_sessions_get      -
+GET     /api/v1/gateways/sessions/{session_id}  get_gateway_session_api_v1_gateways_sessions__session_id__get   -
+GET     /api/v1/gateways/sessions/{session_id}/history  get_session_history_api_v1_gateways_sessions__session_id__history_get   -
+POST    /api/v1/gateways/sessions/{session_id}/message  send_gateway_session_message_api_v1_gateways_sessions__session_id__message_post -
+GET     /api/v1/gateways/commands       gateway_commands_api_v1_gateways_commands_get   -
+GET     /api/v1/gateways        list_gateways_api_v1_gateways_get       -
+POST    /api/v1/gateways        create_gateway_api_v1_gateways_post     -
+GET     /api/v1/gateways/{gateway_id}   get_gateway_api_v1_gateways__gateway_id__get    -
+PATCH   /api/v1/gateways/{gateway_id}   update_gateway_api_v1_gateways__gateway_id__patch       -
+DELETE  /api/v1/gateways/{gateway_id}   delete_gateway_api_v1_gateways__gateway_id__delete      -
+POST    /api/v1/gateways/{gateway_id}/templates/sync    sync_gateway_templates_api_v1_gateways__gateway_id__templates_sync_post -
+GET     /api/v1/metrics/dashboard       dashboard_metrics_api_v1_metrics_dashboard_get  -
+POST    /api/v1/organizations   create_organization_api_v1_organizations_post   -
+GET     /api/v1/organizations/me/list   list_my_organizations_api_v1_organizations_me_list_get  -
+PATCH   /api/v1/organizations/me/active set_active_org_api_v1_organizations_me_active_patch     -
+GET     /api/v1/organizations/me        get_my_org_api_v1_organizations_me_get  -
+DELETE  /api/v1/organizations/me        delete_my_org_api_v1_organizations_me_delete    -
+GET     /api/v1/organizations/me/member get_my_membership_api_v1_organizations_me_member_get    -
+GET     /api/v1/organizations/me/members        list_org_members_api_v1_organizations_me_members_get    -
+GET     /api/v1/organizations/me/members/{member_id}    get_org_member_api_v1_organizations_me_members__member_id__get  -
+PATCH   /api/v1/organizations/me/members/{member_id}    update_org_member_api_v1_organizations_me_members__member_id__patch     -
+DELETE  /api/v1/organizations/me/members/{member_id}    remove_org_member_api_v1_organizations_me_members__member_id__delete    -
+PUT     /api/v1/organizations/me/members/{member_id}/access     update_member_access_api_v1_organizations_me_members__member_id__access_put     -
+GET     /api/v1/organizations/me/invites        list_org_invites_api_v1_organizations_me_invites_get    -
+POST    /api/v1/organizations/me/invites        create_org_invite_api_v1_organizations_me_invites_post  -
+DELETE  /api/v1/organizations/me/invites/{invite_id}    revoke_org_invite_api_v1_organizations_me_invites__invite_id__delete    -
+POST    /api/v1/organizations/invites/accept    accept_org_invite_api_v1_organizations_invites_accept_post      -
+GET     /api/v1/souls-directory/search  search_api_v1_souls_directory_search_get        -
+GET     /api/v1/souls-directory/{handle}/{slug} get_markdown_api_v1_souls_directory__handle___slug__get -
+GET     /api/v1/souls-directory/{handle}/{slug}.md      get_markdown_api_v1_souls_directory__handle___slug__md_get      -
+GET     /api/v1/skills/marketplace      list_marketplace_skills_api_v1_skills_marketplace_get   -
+POST    /api/v1/skills/marketplace      create_marketplace_skill_api_v1_skills_marketplace_post -
+DELETE  /api/v1/skills/marketplace/{skill_id}   delete_marketplace_skill_api_v1_skills_marketplace__skill_id__delete    -
+POST    /api/v1/skills/marketplace/{skill_id}/install   install_marketplace_skill_api_v1_skills_marketplace__skill_id__install_post     -
+POST    /api/v1/skills/marketplace/{skill_id}/uninstall uninstall_marketplace_skill_api_v1_skills_marketplace__skill_id__uninstall_post -
+GET     /api/v1/skills/packs    list_skill_packs_api_v1_skills_packs_get        -
+POST    /api/v1/skills/packs    create_skill_pack_api_v1_skills_packs_post      -
+GET     /api/v1/skills/packs/{pack_id}  get_skill_pack_api_v1_skills_packs__pack_id__get        -
+PATCH   /api/v1/skills/packs/{pack_id}  update_skill_pack_api_v1_skills_packs__pack_id__patch   -
+DELETE  /api/v1/skills/packs/{pack_id}  delete_skill_pack_api_v1_skills_packs__pack_id__delete  -
+POST    /api/v1/skills/packs/{pack_id}/sync     sync_skill_pack_api_v1_skills_packs__pack_id__sync_post -
+GET     /api/v1/board-groups    list_board_groups_api_v1_board_groups_get       -
+POST    /api/v1/board-groups    create_board_group_api_v1_board_groups_post     -
+GET     /api/v1/board-groups/{group_id} get_board_group_api_v1_board_groups__group_id__get      -
+PATCH   /api/v1/board-groups/{group_id} update_board_group_api_v1_board_groups__group_id__patch -
+DELETE  /api/v1/board-groups/{group_id} delete_board_group_api_v1_board_groups__group_id__delete        -
+GET     /api/v1/board-groups/{group_id}/snapshot        get_board_group_snapshot_api_v1_board_groups__group_id__snapshot_get    -
+POST    /api/v1/board-groups/{group_id}/heartbeat       apply_board_group_heartbeat_api_v1_board_groups__group_id__heartbeat_post       -
+GET     /api/v1/board-groups/{group_id}/memory  list_board_group_memory_api_v1_board_groups__group_id__memory_get       -
+POST    /api/v1/board-groups/{group_id}/memory  create_board_group_memory_api_v1_board_groups__group_id__memory_post    -
+GET     /api/v1/board-groups/{group_id}/memory/stream   stream_board_group_memory_api_v1_board_groups__group_id__memory_stream_get      -
+GET     /api/v1/boards/{board_id}/group-memory  list_board_group_memory_for_board_api_v1_boards__board_id__group_memory_get     agent_board_group_memory_discovery      Inspect shared group memory for cross-board context before making decisions. | Collect active chat snapshots for a linked group before coordination actions.     Use as a shared-context discovery step before decisioning. | Use board-specific memory endpoints for direct board persistence updates.
+POST    /api/v1/boards/{board_id}/group-memory  create_board_group_memory_for_board_api_v1_boards__board_id__group_memory_post  agent_board_group_memory_record Persist shared group memory for a linked group from board context. | Broadcast updates/messages to group-linked agents when chat or mention intent is present.   Use for shared memory writes that should be visible across linked boards. | Prefer direct board memory endpoints for board-local persistence.
+GET     /api/v1/boards/{board_id}/group-memory/stream   stream_board_group_memory_for_board_api_v1_boards__board_id__group_memory_stream_get    agent_board_group_memory_stream  Track shared group memory updates in near-real-time for live coordination. | React to newly added group messages without polling.       Use when coordinated decisions need continuous group context. | Prefer bounded history reads when a snapshot is sufficient.
+GET     /api/v1/boards  list_boards_api_v1_boards_get   -
+POST    /api/v1/boards  create_board_api_v1_boards_post -
+GET     /api/v1/boards/{board_id}       get_board_api_v1_boards__board_id__get  -
+PATCH   /api/v1/boards/{board_id}       update_board_api_v1_boards__board_id__patch     -
+DELETE  /api/v1/boards/{board_id}       delete_board_api_v1_boards__board_id__delete    -
+GET     /api/v1/boards/{board_id}/snapshot      get_board_snapshot_api_v1_boards__board_id__snapshot_get        -
+GET     /api/v1/boards/{board_id}/group-snapshot        get_board_group_snapshot_api_v1_boards__board_id__group_snapshot_get    -
+GET     /api/v1/boards/{board_id}/memory        list_board_memory_api_v1_boards__board_id__memory_get   -
+POST    /api/v1/boards/{board_id}/memory        create_board_memory_api_v1_boards__board_id__memory_post        -
+GET     /api/v1/boards/{board_id}/memory/stream stream_board_memory_api_v1_boards__board_id__memory_stream_get  -
+GET     /api/v1/boards/{board_id}/webhooks      list_board_webhooks_api_v1_boards__board_id__webhooks_get       -
+POST    /api/v1/boards/{board_id}/webhooks      create_board_webhook_api_v1_boards__board_id__webhooks_post     -
+GET     /api/v1/boards/{board_id}/webhooks/{webhook_id} get_board_webhook_api_v1_boards__board_id__webhooks__webhook_id__get    -
+PATCH   /api/v1/boards/{board_id}/webhooks/{webhook_id} update_board_webhook_api_v1_boards__board_id__webhooks__webhook_id__patch       -
+DELETE  /api/v1/boards/{board_id}/webhooks/{webhook_id} delete_board_webhook_api_v1_boards__board_id__webhooks__webhook_id__delete      -
+POST    /api/v1/boards/{board_id}/webhooks/{webhook_id} ingest_board_webhook_api_v1_boards__board_id__webhooks__webhook_id__post        -
+GET     /api/v1/boards/{board_id}/webhooks/{webhook_id}/payloads        list_board_webhook_payloads_api_v1_boards__board_id__webhooks__webhook_id__payloads_get -
+GET     /api/v1/boards/{board_id}/webhooks/{webhook_id}/payloads/{payload_id}   get_board_webhook_payload_api_v1_boards__board_id__webhooks__webhook_id__payloads__payload_id__get       -
+GET     /api/v1/boards/{board_id}/onboarding    get_onboarding_api_v1_boards__board_id__onboarding_get  -
+POST    /api/v1/boards/{board_id}/onboarding/start      start_onboarding_api_v1_boards__board_id__onboarding_start_post -
+POST    /api/v1/boards/{board_id}/onboarding/answer     answer_onboarding_api_v1_boards__board_id__onboarding_answer_post       -
+POST    /api/v1/boards/{board_id}/onboarding/agent      agent_onboarding_update_api_v1_boards__board_id__onboarding_agent_post  -
+POST    /api/v1/boards/{board_id}/onboarding/confirm    confirm_onboarding_api_v1_boards__board_id__onboarding_confirm_post     -
+GET     /api/v1/boards/{board_id}/approvals     list_approvals_api_v1_boards__board_id__approvals_get   -
+POST    /api/v1/boards/{board_id}/approvals     create_approval_api_v1_boards__board_id__approvals_post -
+GET     /api/v1/boards/{board_id}/approvals/stream      stream_approvals_api_v1_boards__board_id__approvals_stream_get  -
+PATCH   /api/v1/boards/{board_id}/approvals/{approval_id}       update_approval_api_v1_boards__board_id__approvals__approval_id__patch  -
+GET     /api/v1/boards/{board_id}/tasks/stream  stream_tasks_api_v1_boards__board_id__tasks_stream_get  -
+GET     /api/v1/boards/{board_id}/tasks list_tasks_api_v1_boards__board_id__tasks_get   -
+POST    /api/v1/boards/{board_id}/tasks create_task_api_v1_boards__board_id__tasks_post -
+PATCH   /api/v1/boards/{board_id}/tasks/{task_id}       update_task_api_v1_boards__board_id__tasks__task_id__patch      -
+DELETE  /api/v1/boards/{board_id}/tasks/{task_id}       delete_task_api_v1_boards__board_id__tasks__task_id__delete     -
+GET     /api/v1/boards/{board_id}/tasks/{task_id}/comments      list_task_comments_api_v1_boards__board_id__tasks__task_id__comments_get        -
+POST    /api/v1/boards/{board_id}/tasks/{task_id}/comments      create_task_comment_api_v1_boards__board_id__tasks__task_id__comments_post      -
+GET     /api/v1/organizations/me/custom-fields  list_org_custom_fields_api_v1_organizations_me_custom_fields_get        -
+POST    /api/v1/organizations/me/custom-fields  create_org_custom_field_api_v1_organizations_me_custom_fields_post      -
+PATCH   /api/v1/organizations/me/custom-fields/{task_custom_field_definition_id}        update_org_custom_field_api_v1_organizations_me_custom_fields__task_custom_field_definition_id__patch    -
+DELETE  /api/v1/organizations/me/custom-fields/{task_custom_field_definition_id}        delete_org_custom_field_api_v1_organizations_me_custom_fields__task_custom_field_definition_id__delete   -
+GET     /api/v1/tags    list_tags_api_v1_tags_get       -
+POST    /api/v1/tags    create_tag_api_v1_tags_post     -
+GET     /api/v1/tags/{tag_id}   get_tag_api_v1_tags__tag_id__get        -
+PATCH   /api/v1/tags/{tag_id}   update_tag_api_v1_tags__tag_id__patch   -
+DELETE  /api/v1/tags/{tag_id}   delete_tag_api_v1_tags__tag_id__delete  -
+GET     /api/v1/users/me        get_me_api_v1_users_me_get      -
+DELETE  /api/v1/users/me        delete_me_api_v1_users_me_delete        -
+PATCH   /api/v1/users/me        update_me_api_v1_users_me_patch -
