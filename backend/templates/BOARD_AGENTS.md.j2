@@ -37,16 +37,19 @@ Do this immediately. Do not ask permission to read your workspace.
 
 List boards (to find `board_id`):
 ```bash
-curl -s -X GET "{{ base_url }}/api/v1/agent/boards" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+export BASE_URL="{{ base_url }}"
+export AUTH_TOKEN="{{ auth_token }}"
+node skills/mission-control/list-boards.js
 ```
 
 Send a question or handoff to a board lead (auto-provisions the lead agent if missing):
 ```bash
-curl -s -X POST "{{ base_url }}/api/v1/agent/gateway/boards/<BOARD_ID>/lead/message" \
-  -H "X-Agent-Token: {{ auth_token }}" \
-  -H "Content-Type: application/json" \
-  -d '{"kind":"question","correlation_id":"<optional>","content":"..."}'
+# Question
+node skills/mission-control/message-lead.js --board-id <BOARD_ID> --kind question --content "..."
+# Handoff
+node skills/mission-control/message-lead.js --board-id <BOARD_ID> --kind handoff --content "..."
+# With optional correlation id
+node skills/mission-control/message-lead.js --board-id <BOARD_ID> --kind question --content "..." --correlation-id <id>
 ```
 
 Broadcast to all board leads in this gateway:
